@@ -1,0 +1,22 @@
+{
+  "name": "鹿角机甲",
+  "origin": "Tripo v2.5 generation with local Blender rigging; supplied by the user in the tripo project",
+  "copiedOn": "2026-09-19",
+  "files": [
+    {
+      "source": "tripo/assets/guardian-rigged.glb",
+      "path": "public/models/guardian-rigged.glb",
+      "sha256": "869f9f4d5218ed1be9cbb73fe28e3af8b0c6203934be9a3dc8449a2593f43093"
+    },
+    {
+      "source": "tripo/assets/guardian-rigged.blend",
+      "path": "assets/source/guardian-rigged.blend",
+      "sha256": "320494542fb4362ee61b58e05ea48ea28e76a261bc63aeb9d3f389b72573e770"
+    },
+    {
+      "source": "tripo/assets/tripo-v25-original.glb",
+      "path": "assets/source/tripo-v25-original.glb",
+      "sha256": "aeb428daf88908486d2a59f1d25b1564a0ebd90e541dab6b8350953ea69c6bba"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {"landmark":0,"name":"WRIST","label":"手腕","bone":"Root","target":"root","color":"#d7a766"},
+  {"landmark":4,"name":"THUMB_TIP","label":"拇指","bone":"LeftHand","target":"left","color":"#ffcb87"},
+  {"landmark":8,"name":"INDEX_TIP","label":"食指","bone":"RightHand","target":"right","color":"#f4a654"},
+  {"landmark":12,"name":"MIDDLE_TIP","label":"中指","bone":"Head","target":"head","color":"#ffe2ad"},
+  {"landmark":16,"name":"RING_TIP","label":"无名指","bone":"Chest","target":"chest","color":"#c8874d"}
+]

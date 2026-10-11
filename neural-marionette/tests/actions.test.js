@@ -26,11 +26,27 @@ test('pinch enters once, survives small noise, releases, and cannot survive trac
  assert.equal(trace(g,'open',1020,1280).action,'idle');trace(g,'pinch',1300,1500);assert.equal(g.tick(1800).action,'idle');
  assert.equal(g.features,null);
 });
-test('downward two fingers swing to run; stationary and upright fingers do not',()=>{
- const g=new GestureInterpreter();assert.equal(trace(g,'twoDown',0,200).action,'idle');
- assert.equal(trace(g,'twoDown',220,600,t=>({y:Math.sin((t-200)/110)*.055})).action,'run');
- assert.equal(trace(g,'twoDown',620,1500).action,'idle');
- const upright=new GestureInterpreter();assert.equal(trace(upright,'two',0,700,t=>({x:Math.sin(t/100)*.06})).action,'idle');
+test('spread outer fingers with moving middle fingers drives sprint and stops on stillness',()=>{
+ for(const interval of [33,50,90])for(const mirror of [false,true]){
+  const g=new GestureInterpreter();let moving=0,total=0;
+  for(let t=0;t<6000;t+=interval){
+   const r=g.update(hand('run',{middleBend:.5+.5*Math.sin(t/650*Math.PI*2)}),t,mirror);
+   if(t>1000){total++;moving+=r.action==='run';}
+  }
+  assert.ok(moving/total>.95,`${interval}ms, mirror ${mirror}: ${moving}/${total}`);
+  for(let t=6000;t<8000;t+=interval){const r=g.update(hand('run',{middleBend:.5}),t,mirror);if(t>=6500)assert.equal(r.action,'idle');}
+ }
+});
+test('built-in sprint rejects stillness, whole-hand movement, wrong supporting shapes and the old two-finger gesture',()=>{
+ for(const kind of ['run','twoDown','one','open','fist']){
+  const g=new GestureInterpreter();
+  for(let t=0;t<2000;t+=50){
+   const p=hand(kind,{x:.06*Math.sin(t/100),y:.03*Math.sin(t/130),scale:1+.1*Math.sin(t/150)});
+   assert.notEqual(g.update(p,t).action,'run',kind);
+  }
+ }
+ const g=new GestureInterpreter();
+ for(let t=0;t<1500;t+=50){const p=hand('run',{middleBend:.5+.5*Math.sin(t/100)});p[4]={...p[9]};assert.notEqual(g.update(p,t).action,'run');}
 });
 test('single index rotation triggers spin, while single index translation never runs',()=>{
  const g=new GestureInterpreter();assert.equal(trace(g,'one',0,400,t=>({x:Math.sin(t/100)*.06})).action,'idle');
@@ -41,20 +57,24 @@ test('run and spin hand shapes are mutually exclusive for either mirror setting'
  for(const mirror of [true,false]){
   const two=new GestureInterpreter(),one=new GestureInterpreter();
   for(let t=0;t<800;t+=20){
-   assert.notEqual(two.update(hand('twoDown',{angle:Math.sin(t/160)*.6,x:Math.sin(t/120)*.04}),t,mirror).candidate,'turn');
+   assert.notEqual(two.update(hand('run',{middleBend:.5+.5*Math.sin(t/100)}),t,mirror).candidate,'turn');
    assert.notEqual(one.update(hand('one',{angle:Math.sin(t/160)*.6,x:Math.sin(t/120)*.04}),t,mirror).candidate,'run');
   }
  }
 });
 test('switching hand shape clears old movement and cannot trigger a new action while still',()=>{
  const g=new GestureInterpreter();trace(g,'one',0,400,t=>({angle:t*.002}));assert.equal(g.action,'turn');
- assert.equal(g.update(hand('twoDown'),420).candidate,'idle');assert.equal(trace(g,'twoDown',440,750).action,'idle');
- trace(g,'twoDown',770,1100,t=>({x:(t-750)*.0004}));assert.equal(g.action,'run');
+ assert.equal(g.update(hand('run'),420).candidate,'idle');assert.equal(trace(g,'run',440,750).action,'idle');
+ trace(g,'run',770,1100,t=>({middleBend:.5+.5*Math.sin(t/100)}));assert.equal(g.action,'run');
  assert.equal(g.update(hand('one'),1120).candidate,'idle');assert.equal(trace(g,'one',1140,1500).action,'idle');
 });
-test('toward-camera swinging can drive running without wrist translation',()=>{
- const g=new GestureInterpreter();const result=trace(g,'twoDown',0,600,t=>({scale:1+.14*Math.sin(t/120)}));
- assert.equal(result.action,'run');
+test('run diagnostics identify missing pose, motion and tracking, and tracking loss stops sprint',()=>{
+ const g=new GestureInterpreter();assert.match(g.snapshot(0).runHint,/完整手掌/);
+ assert.match(trace(g,'fist',0,200).runHint,/拇指/);
+ assert.match(trace(g,'open',220,500).runHint,/中间三指/);
+ assert.match(trace(g,'run',520,900).runHint,/中间三指/);
+ assert.equal(trace(g,'run',920,1700,t=>({middleBend:.5+.5*Math.sin(t/100)})).action,'run');
+ assert.equal(g.tick(2000).action,'idle');assert.match(g.snapshot(2000).runHint,/完整手掌/);
 });
 test('crouch needs downward fist; upward opening jumps once and held open never repeats',()=>{
  const g=new GestureInterpreter();assert.equal(trace(g,'fist',0,200).action,'idle');

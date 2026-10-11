@@ -18,3 +18,13 @@ header{height:78px}.intro{padding:24px 0}.intro h1{font-family:"Songti SC","STSo
 
 .capture-controls{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:10px 22px;border-top:1px solid var(--line);font-size:11px;color:#a7bbc8}.capture-controls label{white-space:nowrap;color:#e9c695}.capture-controls span{font-size:10px;color:#8fa6b7}.workspace:fullscreen .canvas-wrap{max-height:calc(100vh - 230px);width:min(100%,calc((100vh - 230px)*16/9))}
 @media(max-width:650px){.capture-controls{padding:10px 12px;gap:6px 12px}.workspace:fullscreen .canvas-wrap{max-height:calc(100vh - 310px);width:min(100%,calc((100vh - 310px)*16/9))}}
+
+.studio-controls>.checkbox{display:flex;margin:14px 0 6px;line-height:1.6}.studio-controls>.checkbox+small{display:block;margin-bottom:14px;line-height:1.7}
+
+.sample-row small{display:block;line-height:1.7;color:#9eafc4}#learn-check-result{font-size:12px;line-height:1.8;color:#f7d4a1}.studio-footer{flex-wrap:wrap}
+
+#learn-match-detail{font-size:12px;line-height:1.8;color:#c5d1df}
+
+#learn-run-trigger+small{display:block;margin:8px 0 16px;line-height:1.7}
+
+[hidden]{display:none!important}#studio-paused{padding:28px;color:#f7d4a1;line-height:1.8}#run-rule-status{font-size:13px;line-height:1.8;color:#f7d4a1}#learn-panel{margin-top:18px}#learn-exit{border-color:#ffbd75;color:#ffcf9a}

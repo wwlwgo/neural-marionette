@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.venv/
+.DS_Store
+recordings/*.webm
+.test-python/
+
+.vite-local/
+docs/evidence/
+tests/generated/

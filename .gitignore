@@ -20,3 +20,14 @@ neural-marionette/docs/reference-audit/
 neural-marionette/recordings/
 my-gestures-*.json
 neural-marionette-diagnostics-*.json
+
+# Both app versions: local-only artifacts
+**/.vite-local/
+**/__pycache__/
+**/docs/evidence/
+**/docs/reference-audit/
+**/tests/generated/
+**/recordings/
+
+# Also exclude locally linked dependency directories
+node_modules

@@ -1,8 +1,9 @@
 import {clamp, approach, validHand} from './core.js';
+import {runSupport,middleFingerMotion,RUN_START,RUN_STOP,RUN_WINDOW_MS} from './run-gesture.js';
 
 export const ACTIONS = {
   idle: {name:'待机', en:'IDLE', hint:'张开手掌，放松停留', key:'1'},
-  run: {name:'疾跑', en:'SPRINT', hint:'食指、中指朝下伸出，其余收起，前后摆动', key:'2'},
+  run: {name:'疾跑', en:'SPRINT', hint:'手掌朝下，拇指、小指张开，中间三指前后摆动；停手即停', key:'2'},
   turn: {name:'旋身跃起', en:'SPIN LEAP', hint:'只伸出食指，其余收起，像转钥匙一样转腕', key:'3'},
   load: {name:'负重', en:'HEAVY LIFTING', hint:'拇指与食指捏合并保持，松开卸力', key:'4'},
   crouch: {name:'下蹲', en:'CROUCH', hint:'握拳向下压，保持拳头维持下蹲', key:'5'},
@@ -13,7 +14,7 @@ const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
 const smooth=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
 
 // Distances and velocities are measured in palm lengths, independent of camera distance.
-export function handFeatures(points,mirror=false){
+export function handFeatures(points,mirror=false,aspect=16/9,runActive=false){
   if(!validHand(points))return null;
   const p=points.map(p=>({...p,x:mirror?1-p.x:p.x}));
   const scale=Math.max(.035,distance(p[0],p[9]));
@@ -24,11 +25,12 @@ export function handFeatures(points,mirror=false){
     return straight>.55&&distance(p[m+3],p[0])>distance(p[m+1],p[0])*1.08;
   });
   const thumbTucked=distance(p[4],p[9])/scale<.85;
+  const run=runSupport(points,aspect,runActive);
   const two=extension[0]&&extension[1]&&!extension[2]&&!extension[3]&&thumbTucked;
   const pointsDown=[5,9].every(m=>(p[m+3].y-p[m].y)/Math.max(.001,distance(p[m+3],p[m]))>.40);
   const tipX=((p[8].x+p[12].x)/2-p[0].x)/scale;
   const tipY=((p[8].y+p[12].y)/2-p[0].y)/scale;
-  return {x:p[0].x,y:p[0].y,scale,tipX,tipY,thumbTucked,pinch:distance(p[4],p[8])/scale,
+  return {x:p[0].x,y:p[0].y,scale,tipX,tipY,thumbTucked,thumbSpread:run.thumbSpread,pinkySpread:run.pinkySpread,runPose:run.runPose,runReady:run.ready,runPinched:run.pinched,pinch:distance(p[4],p[8])/scale,
     angle:Math.atan2(p[9].y-p[0].y,p[9].x-p[0].x),
     open:extension.every(Boolean),fist:extension.every(v=>!v),
     two,twoDown:two&&pointsDown,indexOnly:extension[0]&&!extension[1]&&!extension[2]&&!extension[3]&&thumbTucked,extension};
@@ -36,43 +38,52 @@ export function handFeatures(points,mirror=false){
 
 export class GestureInterpreter{
   constructor(){this.reset();}
-  reset(){this.previous=null;this.features=null;this.candidate='idle';this.since=0;this.action='idle';this.lastMotion=-Infinity;this.lastTurn=-Infinity;this.crouchArmed=false;this.jumpLatched=false;this.lastSeen=-Infinity;this.direction=1;this.strength=1;this.recognitionMs=0;this.vx=this.vy=this.omega=this.runSpeed=0;}
-  update(points,now,mirror=false){
-    const f=handFeatures(points,mirror);if(!f)return this.tick(now);
+  reset(){this.previous=null;this.features=null;this.runFrames=[];this.runMotion={ready:false,activity:0,activities:[0,0,0],movingCount:0};this.candidate='idle';this.since=0;this.action='idle';this.lastTurn=-Infinity;this.crouchArmed=false;this.jumpLatched=false;this.lastSeen=-Infinity;this.direction=1;this.strength=1;this.recognitionMs=0;this.vx=this.vy=this.omega=0;}
+  update(points,now,mirror=false,aspect=16/9){
+    const f=handFeatures(points,mirror,aspect,this.action==='run');if(!f)return this.tick(now);
     if(now-this.lastSeen>250)this.reset();
     const prev=this.previous,dt=prev?clamp((now-prev.time)/1000,.008,.15):.033;
     const vx=prev?(f.x-prev.x)/f.scale/dt:0,vy=prev?(f.y-prev.y)/f.scale/dt:0;
-    const family=f.twoDown?'run':f.indexOnly?'turn':'other';
+    const family=f.runPose?'run':f.indexOnly?'turn':'other';
     const sameFamily=prev?.family===family;
     // A pose change cannot inherit rotation or swing energy from the previous hand shape.
-    if(!sameFamily){this.lastMotion=this.lastTurn=-Infinity;this.omega=this.runSpeed=0;}
+    if(!sameFamily){this.lastTurn=-Infinity;this.omega=0;this.runFrames=[];}
     const omega=prev&&sameFamily?wrap(f.angle-prev.angle)/dt:0;
     this.vx=approach(this.vx,vx,dt,.035);this.vy=approach(this.vy,vy,dt,.035);this.omega=approach(this.omega,omega,dt,.045);
-    if(f.twoDown&&sameFamily){
-      const fingerSwing=Math.hypot(f.tipX-prev.tipX,f.tipY-prev.tipY)/dt;
-      const depthSwing=Math.abs(Math.log(f.scale/prev.scale))/dt;
-      this.runSpeed=approach(this.runSpeed,Math.max(Math.hypot(vx,vy),fingerSwing*.65,depthSwing*.9),dt,.04);
-    }
+    this.runFrames=this.runFrames.filter(frame=>now-frame.t<=RUN_WINDOW_MS);
+    if(f.runPose)this.runFrames.push({points,t:now,aspect});
+    const threshold=this.action==='run'?RUN_STOP:RUN_START;
+    const motion=middleFingerMotion(this.runFrames,now,threshold);this.runMotion=motion;
+    const running=f.runPose&&!f.runPinched&&motion.ready&&motion.movingCount>=2;
     this.previous={...f,family,time:now};this.features=f;this.lastSeen=now;
     let next='idle';
     if(f.fist)this.jumpLatched=false;
-    if(this.crouchArmed&&f.open&&this.vy<-1.15&&!this.jumpLatched){next='jump';this.jumpLatched=true;this.crouchArmed=false;}
-    else if(f.pinch<(this.action==='load'?.38:.25)&&!f.fist)next='load';
-    else if(f.fist&&(this.vy>.45||this.action==='crouch'||this.candidate==='crouch'))next='crouch';
-    else if(f.indexOnly){
+    if(!running&&this.crouchArmed&&f.open&&this.vy<-1.15&&!this.jumpLatched){next='jump';this.jumpLatched=true;this.crouchArmed=false;}
+    else if(f.pinch<(this.action==='load'?.38:.25)&&!f.fist&&(!f.runPose||f.runPinched))next='load';
+    else if(f.fist&&!f.runPose&&(this.vy>.45||this.action==='crouch'||this.candidate==='crouch'))next='crouch';
+    else if(f.indexOnly&&!f.runPose){
       if(Math.abs(this.omega)>1.05){this.lastTurn=now;this.direction=Math.sign(this.omega);}
       if(now-this.lastTurn<260){next='turn';this.strength=clamp(Math.abs(this.omega)/2,.55,1.4);}
-    }else if(f.twoDown){
-      if(this.runSpeed>.55)this.lastMotion=now;
-      if(now-this.lastMotion<260){next='run';this.strength=clamp(this.runSpeed/2,.7,1.5);}
-    }
+    }else if(running){next='run';this.strength=clamp(motion.activity/.06,.7,1.5);}
     if(next!==this.candidate){this.candidate=next;this.since=now;}
-    const dwell=next==='jump'?0:next==='idle'?150:next==='turn'?65:80;
+    const dwell=next==='jump'||(next==='idle'&&this.action==='run')?0:next==='idle'?150:next==='turn'?65:80;
     if(now-this.since>=dwell){if(this.action!==next)this.recognitionMs=now-this.since;this.action=next;if(next==='crouch')this.crouchArmed=true;else if(next!=='jump')this.crouchArmed=false;}
     return this.snapshot(now);
   }
   tick(now){if(now-this.lastSeen>250)this.reset();return this.snapshot(now);}
-  snapshot(now){return {action:this.action,candidate:this.candidate,progress:clamp((now-this.since)/80,0,1),direction:this.direction,strength:this.strength,recognitionMs:this.recognitionMs,features:this.features};}
+  runHint(){
+    const f=this.features;if(!f)return '疾跑检查：未检测到完整手掌。';
+    if(!f.runReady)return '疾跑检查：手掌关键点重叠，请稍微调整角度，让指节可见。';
+    if(!f.thumbSpread)return '疾跑检查：请保持拇指张开。';
+    if(!f.pinkySpread)return '疾跑检查：请保持小指伸开。';
+    if(f.runPinched)return '疾跑检查：请分开拇指和食指，避免捏合。';
+    if(!this.runMotion.ready)return '疾跑手型已就绪：中间三指可以自由伸屈，请反复前后摆动。';
+    const names=['食指','中指','无名指'],threshold=this.action==='run'?RUN_STOP:RUN_START;
+    const detail=this.runMotion.activities.map((v,i)=>`${names[i]}${v>=threshold?'在动':'未明显动'}`).join(' · ');
+    if(this.runMotion.movingCount<2)return `疾跑检查：${detail}。请让中间三指持续摆动。`;
+    return (this.action==='run'?'疾跑中 · 停手即停：':'正在确认疾跑：')+detail;
+  }
+  snapshot(now){return {runHint:this.runHint(),runMotion:this.runMotion,action:this.action,candidate:this.candidate,progress:clamp((now-this.since)/80,0,1),direction:this.direction,strength:this.strength,recognitionMs:this.recognitionMs,features:this.features};}
 }
 
 export const JUMP_DURATION=1.18;

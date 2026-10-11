@@ -20,7 +20,7 @@ Google 官方 MediaPipe 模型，下载地址及 SHA256 见 model-manifest.json�
 
 ## 测试图片
 
-本公开版本不分发静态测试图片。`model_test.py` 使用的可选夹具 `tests/fixtures/right_hands.jpg` 原来源为 Google MediaPipe 官方测试资源：
+公开仓库不附带 tests/fixtures/right_hands.jpg。需要运行静态图片测试时可自行准备；原测试夹具来自 Google MediaPipe 官方资源：
 https://storage.googleapis.com/mediapipe-assets/right_hands.jpg
 
 仅作为自动测试夹具，未用作实时摄像头伪装或产品视觉资产。测试结果明确注明静态图片。

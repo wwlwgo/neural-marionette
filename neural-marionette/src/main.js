@@ -25,7 +25,11 @@ let actionOverride=null,actionMotion=director.update({action:'idle'},performance
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const actionButtons=new Map();
 const music=new BackgroundMusic();
-const studio=new GestureStudio({getMode:()=>mode,video,connect:startCamera,download});
+const studio=new GestureStudio({getMode:()=>mode,video,connect:startCamera,download,onWorkspaceChange:()=>{
+ if(recording)stopRecording();
+ resetTracking();intent={action:'idle'};pose={...NEUTRAL};actionMotion=director.update(intent,performance.now());updateButtons();
+ for(const button of actionButtons.values())button.disabled=studio.editing;
+}});
 const recorder=new StageRecorder(result=>{
  recording=null;automaticCapture=false;resize();
  $('record').classList.remove('recording');$('record').querySelector('span').textContent='录制 25 秒';updateButtons();
@@ -51,11 +55,11 @@ function resize(){
 resize();
 function setText(id,text){if($(id).textContent!==text)$(id).textContent=text;}
 function notice(message){$('notice').textContent=message;$('notice').hidden=!message;}
-function resetTracking(){studio.stop();gestures.reset();director.reset();actionOverride=null;machine.reset();filter.reset();points=raw=base=lastPositions=null;handedness=null;calibrationSamples=[];lastFrameAt=-Infinity;manual={};}
+function resetTracking(){studio.stop();gestures.reset();director.reset();actionOverride=null;machine.reset();filter.reset();points=raw=base=lastPositions=null;handedness=null;calibrationSamples=[];lastFrameAt=mode==='camera'?performance.now():-Infinity;manual={};}
 function stopResources(){generation++;stream?.getTracks().forEach(t=>t.stop());stream=null;video.srcObject=null;worker?.terminate();worker=null;workerReady=false;busy=false;lastVideoTime=-1;}
 function switchOff(){music.setActive(false);if(recording)stopRecording();stopResources();mode='off';stats.mode=mode;resetTracking();$('welcome').hidden=false;notice('');updateButtons();}
 function fail(message,error){music.setActive(false);if(recording)stopRecording();stopResources();mode='error';lastError=message;stats.errors.push({at:Date.now(),message,detail:String(error||'')});resetTracking();machine.state='Error';$('welcome').hidden=false;notice(message);updateButtons();}
-function updateButtons(){const live=mode==='camera';$('state-label').textContent=mode==='off'?'等待连接':mode==='loading'?'正在连接':stateNames[machine.state];$('mode-tag').textContent=mode==='demo'?'SIMULATION':live?'LIVE CAMERA':mode==='loading'?'INITIALIZING':'CAMERA OFF';$('camera-toggle').querySelector('span').textContent=live?'关闭摄像头':mode==='loading'?'取消连接':'连接摄像头';$('demo-toggle').querySelector('span').textContent=mode==='demo'?'退出模拟':'模拟操控';$('record').disabled=!(mode==='demo'||live);$('calibrate').disabled=!machine.active;}
+function updateButtons(){const live=mode==='camera';$('state-label').textContent=mode==='off'?'等待连接':mode==='loading'?'正在连接':stateNames[machine.state];$('mode-tag').textContent=mode==='demo'?'SIMULATION':live?'LIVE CAMERA':mode==='loading'?'INITIALIZING':'CAMERA OFF';$('camera-toggle').querySelector('span').textContent=live?'关闭摄像头':mode==='loading'?'取消连接':'连接摄像头';$('demo-toggle').querySelector('span').textContent=mode==='demo'?'退出模拟':'模拟操控';$('record').disabled=studio.editing||!(mode==='demo'||live);$('calibrate').disabled=!machine.active;}
 async function startCamera(){
  if(mode==='loading'||mode==='camera')return;music.setActive(true);if(recording)stopRecording();stopResources();resetTracking();mode='loading';stats.mode=mode;lastError=null;const current=generation;$('welcome').hidden=true;notice('正在连接摄像头并加载本地追踪模型…');updateButtons();
  let cameraStream;
@@ -77,15 +81,16 @@ async function startCamera(){
   worker.postMessage({type:'init',config:config.tracking});
  }catch(e){if(current!==generation){cameraStream?.getTracks().forEach(t=>t.stop());return;}const messages={NotAllowedError:'摄像头权限未开启。点击地址栏的摄像头图标允许访问；如仍不可用，请在系统设置 → 隐私与安全性 → 摄像头中允许 Chrome。',NotFoundError:'没有找到摄像头。请连接 USB 摄像头或启用 iPhone 连续互通相机后重试。',NotReadableError:'无法读取摄像头。请关闭其他占用摄像头的应用后重试。'};fail(messages[e.name]||e.message,e);}
 }
-function startDemo(){music.setActive(true);if(recording)stopRecording();stopResources();resetTracking();mode='demo';stats.mode=mode;lastError=null;$('welcome').hidden=true;notice('动作试播 · 点击下方动作或按 1–6。移动指针可牵引位置；此模式不使用摄像头。');updateButtons();}
+function startDemo(){if(studio.editing)studio.setEditing(false);music.setActive(true);if(recording)stopRecording();stopResources();resetTracking();mode='demo';stats.mode=mode;lastError=null;$('welcome').hidden=true;notice('动作试播 · 点击下方动作或按 1–6。移动指针可牵引位置；此模式不使用摄像头。');updateButtons();}
 function acceptFrame(next,now){
  lastFrameAt=now;if(mode==='camera')studio.ingest(next,now,video.videoWidth/video.videoHeight||16/9);const valid=validHand(next);
+ if(mode==='camera'&&studio.editing){machine.frame(valid,now,false);return;}
  if(valid){
   if(now-machine.lastSeen>config.tracking.lost_timeout_ms){filter.reset();base=null;calibrationSamples=[];}
-  raw=next;points=filter.update(next,now);if(mode==='camera')intent=gestures.update(next,now,config.camera.mirror_input);let speed=0;if(lastPositions)speed=Math.hypot(points[0].x-lastPositions.x,points[0].y-lastPositions.y);lastPositions={...points[0]};tetherSpeed=approach(tetherSpeed,clamp(speed*120,0,1),.033,.1);
+  raw=next;points=filter.update(next,now);if(mode==='camera'&&!studio.editing)intent=gestures.update(next,now,config.camera.mirror_input,video.videoWidth/video.videoHeight||16/9);let speed=0;if(lastPositions)speed=Math.hypot(points[0].x-lastPositions.x,points[0].y-lastPositions.y);lastPositions={...points[0]};tetherSpeed=approach(tetherSpeed,clamp(speed*120,0,1),.033,.1);
   machine.frame(true,now,speed>config.tracking.movement_threshold);
   if(!base||holdCalibrate){calibrationSamples.push(structuredClone(points));if(calibrationSamples.length>config.tracking.calibration_samples)calibrationSamples.shift();const stable=calibrationSamples.length===config.tracking.calibration_samples&&[0,8].every(i=>Math.hypot(calibrationSamples[0][i].x-points[i].x,calibrationSamples[0][i].y-points[i].y)<config.tracking.calibration_stability);if(stable){const mean=points.map((_,i)=>Object.fromEntries(['x','y','z'].map(k=>[k,calibrationSamples.reduce((s,f)=>s+f[i][k],0)/calibrationSamples.length])));base=calibration(mean,config.camera.mirror_input);holdCalibrate=false;calibrationSamples=[];if(mode==='camera')notice('');} }
- }else{machine.frame(false,now);intent=gestures.tick(now);calibrationSamples=[];}
+ }else{machine.frame(false,now);intent=studio.editing?{action:'idle'}:gestures.tick(now);calibrationSamples=[];}
 }
 async function dispatchFrame(now){if(mode!=='camera'||!workerReady||busy||video.readyState<2||video.currentTime===lastVideoTime||now-lastDispatch<1000/config.tracking.inference_fps)return;busy=true;lastVideoTime=video.currentTime;lastDispatch=now;const current=generation;try{const bitmap=await createImageBitmap(video,{resizeWidth:config.tracking.inference_width,resizeHeight:Math.round(config.tracking.inference_width*video.videoHeight/video.videoWidth)});if(current!==generation){bitmap.close();return;}worker.postMessage({type:'frame',bitmap,timestamp:now},[bitmap]);}catch(e){if(current===generation)fail('无法读取摄像头帧，请重新连接。',e);}}
 function point(x,y,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
@@ -136,8 +141,8 @@ function tick(now){
  if(mode==='demo')acceptFrame(syntheticHand(now/1000,cursor),now);
  if(mode==='camera'){if(now-lastFrameAt>config.tracking.stale_timeout_ms){machine.frame(false,now);if(now-lastFrameAt>config.tracking.error_timeout_ms)fail('摄像头或追踪数据已停止更新，请重新连接。');}}
  if(mode!=='error')machine.tick(now);
- if(mode==='camera')intent=gestures.tick(now);
- const active=machine.active&&base!==null;const target=active?mapPose(points,base,config.camera.mirror_input,config.motion):{...NEUTRAL};
+ if(mode==='camera')intent=studio.editing?{action:'idle'}:gestures.tick(now);
+ const active=!studio.editing&&machine.active&&base!==null;const target=active?mapPose(points,base,config.camera.mirror_input,config.motion):{...NEUTRAL};
  // Gesture actions own the limbs; only wrist translation and a little head orientation remain continuous.
  target.left=target.right=target.chest=target.nod=0;
  if(mode==='demo')Object.assign(target,manual);
@@ -146,10 +151,12 @@ function tick(now){
  const controlIntent=studio.intent(intent,now);studio.tick(now);
  const desired=actionOverride?{action:actionOverride,strength:1,direction:1}:mode==='camera'&&machine.active?controlIntent:{action:'idle'};
  actionMotion=director.update(desired,now);if(actionOverride==='jump'&&director.completedJump)actionOverride='idle';
- robot.update(pose,now/1000,active,actionMotion);draw(now);recorder.frame();renderMs=performance.now()-frameStarted;
+ if(!studio.editing){robot.update(pose,now/1000,active,actionMotion);draw(now);recorder.frame();}renderMs=performance.now()-frameStarted;
+ const runBound=studio.enabled&&studio.samples.some(s=>s.action==='run');
+ setText('run-rule-status',studio.editing?'疾跑检查已暂停：正在录制模式。':mode!=='camera'?'原有疾跑：手掌朝下，拇指、小指张开，中间三指前后摆动；停手即停。':runBound?'疾跑使用已录制样本。选择「原有手势规则」可直接使用内置手势。':studio.mode==='personal'?'仅录制模式下疾跑尚未绑定，请切换「原有手势规则」。':intent.runHint||'请让整只手进入画面。');
  setText('action-name',ACTIONS[actionMotion.action].name);
  setText('action-source',actionOverride?'动作试播':mode==='camera'?(studio.sourceLabel):'等待输入');
- setText('gesture-hint',studio.enabled&&!actionOverride?(studio.mode==='hybrid'?'已绑定动作使用你的录制；其余动作沿用原有规则。':'使用你录制的样本识别；未绑定的动作保持待机。'):actionOverride?ACTIONS[actionOverride].hint:mode==='camera'&&intent.candidate!==intent.action?'识别中：'+ACTIONS[intent.candidate].name:ACTIONS[actionMotion.action].hint);
+ setText('gesture-hint',studio.editing?'正常操控已暂停；保存后点击「返回正常操控」。':studio.enabled&&!actionOverride?(studio.mode==='hybrid'?'已绑定动作使用你的录制；其余动作沿用原有规则。':'使用你录制的样本识别；未绑定的动作保持待机。'):actionOverride?ACTIONS[actionOverride].hint:mode==='camera'&&intent.candidate&&intent.candidate!==intent.action?'识别中：'+ACTIONS[intent.candidate].name:ACTIONS[actionMotion.action].hint);
  for(const [name,button] of actionButtons){const pressed=String(actionMotion.action===name);if(button.getAttribute('aria-pressed')!==pressed)button.setAttribute('aria-pressed',pressed);}
  if(now-lastHud>300){const fps=frameWindow.length;lastHud=now;$('frame-age').textContent=mode==='camera'?resultAgeMs.toFixed(0)+' ms':'—';$('gesture-delay').textContent=mode==='camera'?(controlIntent.recognitionMs??0)+' ms':'—';$('fps').textContent=fps;$('latency').textContent=mode==='camera'?lastInference.toFixed(0):'—';$('points-count').innerHTML=`${machine.active||machine.state==='Acquiring'?21:0}<span>/21</span>`;$('tracking-rate').textContent=mode==='camera'?`追踪 ${trackingWindow.length} Hz`:mode==='demo'?'模拟输入':'追踪 — Hz';$('handedness').textContent=mode==='demo'?'模拟 · 不使用摄像头':handedness&&machine.active?`${handedness.categoryName} · 左右手分类 ${(handedness.score*100).toFixed(0)}%`:'尚无手部输入';$('state-label').textContent=mode==='off'?'等待连接':mode==='loading'?'正在连接':stateNames[machine.state];$('mode-tag').textContent=mode==='demo'?'SIMULATION':mode==='camera'?'LIVE CAMERA':mode==='loading'?'INITIALIZING':'CAMERA OFF';$('status-dot').style.background=machine.active?'#eabc7b':mode==='error'?'#e38970':'#7e8e9d';$('calibrate').disabled=!machine.active;stats.samples.push({seconds:(now-start)/1000,fps,targetFps:renderFps(),captureOptimized:captureOptimized(),recording:!!recording,renderMs,trackingHz:trackingWindow.length,state:machine.state,mode,action:actionMotion.action,gesture:controlIntent.action,frameAgeMs:mode==='camera'?resultAgeMs:null,gestureConfirmationMs:mode==='camera'?(controlIntent.recognitionMs??0):null,inferenceMs:mode==='camera'?lastInference:null});if(stats.samples.length>3600)stats.samples.shift();if($('debug-panel').open)$('debug-data').textContent=JSON.stringify({mode,state:machine.state,action:actionMotion.action,gesture:intent,frameAgeMs:resultAgeMs,calibrated:!!base,pose,raw:raw?{wrist:raw[0],index:raw[8]}:null,filtered:points?{wrist:points[0],index:points[8]}:null},null,2);}
  requestAnimationFrame(tick);
@@ -183,7 +190,7 @@ window.addEventListener('beforeunload',()=>{recorder.dispose();stopResources();}
 window.__NM_DIAGNOSTICS__=()=>({recording:recorder.diagnostics(),renderProfile:{optimized:captureOptimized(),manual:manualCapture,width:canvas.width,height:canvas.height,targetFps:renderFps(),renderMs},music:music.diagnostics(),studio:studio.diagnostics(),mode,action:actionMotion.action,actionOverride,motion:actionMotion,gesture:intent,frameAgeMs:resultAgeMs,feet:['LeftFoot','RightFoot'].map(name=>{const v=robot.bones[name].getWorldPosition(robot.bones[name].position.clone());return {name,x:v.x,y:v.y,z:v.z};}),state:machine.state,pose:{...pose},calibrated:!!base,points:points?.length||0,workerReady,errors:stats.errors,frames:stats.frames,samples:stats.samples.slice(-5),endpoints:links.map(l=>({bone:l.bone,...robot.project(l.bone,canvas.width,canvas.height)})),renderer:robot.renderer.info.render});
 requestAnimationFrame(tick);
 
-function previewAction(name){if(!ACTIONS[name])return;if(mode!=='demo')startDemo();if(name==='jump'&&actionMotion.action==='jump')return;actionOverride=name;}
+function previewAction(name){if(studio.editing||!ACTIONS[name])return;if(mode!=='demo')startDemo();if(name==='jump'&&actionMotion.action==='jump')return;actionOverride=name;}
 for(const [name,meta] of Object.entries(ACTIONS)){const button=document.createElement('button');button.type='button';button.dataset.action=name;button.setAttribute('aria-pressed','false');button.innerHTML=`<kbd>${meta.key}</kbd><strong>${meta.name}</strong><span>${meta.hint}</span>`;button.onclick=()=>previewAction(name);$('action-buttons').append(button);actionButtons.set(name,button);}
-$('gesture-control').onclick=()=>{actionOverride=null;gestures.reset();if(mode!=='camera')startCamera();else notice('手势控制已恢复。');};
+$('gesture-control').onclick=()=>{studio.setEditing(false);actionOverride=null;gestures.reset();if(mode!=='camera')startCamera();else notice('手势控制已恢复。');};
 document.addEventListener('keydown',e=>{if(e.repeat||e.altKey||e.ctrlKey||e.metaKey||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||e.target.isContentEditable)return;const match=Object.entries(ACTIONS).find(([,v])=>v.key===e.key);if(match){e.preventDefault();previewAction(match[0]);}});

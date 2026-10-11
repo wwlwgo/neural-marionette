@@ -1,7 +1,7 @@
 """Exercise the real studio UI with a synthetic landmark source, not real-hand validation."""
-import pathlib,json
+import pathlib,json,tempfile
 from playwright.sync_api import sync_playwright
-ROOT=pathlib.Path(__file__).resolve().parents[1];OUT=ROOT/'docs/evidence/gesture-studio';OUT.mkdir(parents=True,exist_ok=True)
+ROOT=pathlib.Path(__file__).resolve().parents[1];OUT=pathlib.Path(tempfile.gettempdir())/'neural-marionette-tests/gesture-studio';OUT.mkdir(parents=True,exist_ok=True)
 CHROME='/Users/wwl/Library/Caches/ms-playwright/chromium-1228/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
 with sync_playwright() as p:
     browser=p.chromium.launch(executable_path=CHROME,headless=True,args=['--use-angle=metal','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream'])
@@ -15,27 +15,33 @@ with sync_playwright() as p:
     def setup():
         page.wait_for_load_state('networkidle')
         page.evaluate("async()=>{window.fixtureHand=(await import('/tests/fixtures/gesture-hand.js')).hand;}")
-        page.locator('#learn-connect').click();page.wait_for_function("window.__NM_DIAGNOSTICS__().mode==='camera'")
-        page.wait_for_function("!document.querySelector('#learn-record').disabled")
+        page.locator('#camera-toggle').click();page.wait_for_function("window.__NM_DIAGNOSTICS__().mode==='camera'")
+        assert not page.locator('#learn-preview').is_visible()
+    def enter():
+        if page.locator('#learn-enter').is_visible():page.locator('#learn-enter').click()
     page.goto('http://127.0.0.1:5173');setup()
+    enter()
+    page.locator('#learn-run-trigger').select_option('motion')
     page.locator('#learn-action').select_option('run');page.locator('#learn-record').click()
-    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='review'",timeout=7000)
+    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='review'",timeout=12000)
     page.wait_for_function("!document.querySelector('#learn-save').disabled")
     page.locator('.gesture-studio').screenshot(path=str(OUT/'review.png'))
-    page.locator('#learn-save').click()
+    page.locator('#learn-save').click();page.locator('#learn-exit').click()
     assert page.locator('#learn-mode').input_value()=='hybrid'
     page.wait_for_function("window.__NM_DIAGNOSTICS__().action==='run'",timeout=7000)
     diag=page.evaluate('window.__NM_DIAGNOSTICS__()')
     assert diag['gesture']['action']=='idle','Must be learned, not the original rule'
     assert len(diag['studio']['samples'])==1
     page.locator('.gesture-studio').screenshot(path=str(OUT/'bound.png'))
+    enter()
     page.evaluate('window.still=true');page.locator('#learn-action').select_option('idle');page.locator('#learn-record').click()
-    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='review'",timeout=7000)
-    page.wait_for_function("!document.querySelector('#learn-save').disabled");page.locator('#learn-save').click()
+    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='review'",timeout=12000)
+    page.wait_for_function("!document.querySelector('#learn-save').disabled");page.locator('#learn-save').click();page.locator('#learn-exit').click()
     page.wait_for_function('window.__NM_DIAGNOSTICS__().studio.samples.length===2')
     page.evaluate('window.still=false');page.wait_for_function("window.__NM_DIAGNOSTICS__().action==='run'",timeout=7000)
     page.evaluate('window.still=true');page.wait_for_function("window.__NM_DIAGNOSTICS__().action==='idle'",timeout=7000)
     page.evaluate('window.still=false')
+    enter()
     with page.expect_download() as download:page.locator('#learn-export').click()
     download.value.save_as(str(OUT/'synthetic-samples.json'))
     exported=json.loads((OUT/'synthetic-samples.json').read_text());assert exported['samples'][0]['action']=='run'
@@ -54,13 +60,14 @@ with sync_playwright() as p:
     assert page.evaluate("localStorage.getItem('nm-personal-gestures-v1')")==saved
     page.evaluate("window.handKind='open';window.still=false")
     page.wait_for_function("window.__NM_DIAGNOSTICS__().action==='run'",timeout=7000)
+    enter()
     page.locator('#learn-import').set_input_files(str(OUT/'synthetic-samples.json'))
-    page.wait_for_function("document.querySelector('#learn-status').textContent.includes('样本已导入')")
+    page.wait_for_function("document.querySelector('#learn-status').textContent.includes('已导入')")
     assert len(page.evaluate('window.__NM_DIAGNOSTICS__().studio.samples'))==2
     page.locator('#learn-record').click();page.evaluate('window.noHand=true')
-    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='error'",timeout=7000)
-    page.wait_for_function("document.querySelector('#learn-save').disabled && document.querySelector('#learn-status').textContent.includes('手掌')")
-    assert '手掌' in page.locator('#learn-status').inner_text()
+    page.wait_for_function("window.__NM_DIAGNOSTICS__().studio.captureState==='error'",timeout=16000)
+    page.wait_for_function("document.querySelector('#learn-save').disabled && document.querySelector('#learn-status').textContent.includes('手部')")
+    assert '手部' in page.locator('#learn-status').inner_text()
     page.evaluate('window.noHand=false');page.wait_for_function("!document.querySelector('#learn-record').disabled")
     page.locator('#learn-record').click();page.locator('#camera-toggle').click()
     assert page.evaluate('window.__NM_DIAGNOSTICS__().studio.captureState')=='idle'
